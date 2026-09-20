@@ -334,9 +334,7 @@ local selectedMove = nil
 local selectedStance = currentStance
 local selectedAction = nil
 local blockFightEnabled = true
-local emoteCopyEnabled = false
 local copiedMainEmoteId = nil
-local copiedAnimationTracks = {}
 
 local getActiveStandPlayers
 
@@ -1189,23 +1187,15 @@ end
 
 local function rebuildEmoteCopy(page)
     clearPage(page)
-    addPageTitle(page, "EMOTE / ANIMATION COPY", "Mirror every animation and emote currently playing on the main account.")
+    addPageTitle(page, "EMOTE COPY", "Copy the emote currently playing on the main account to the stand.")
 
-    addButton(page, "ANIMATION COPY ON", 92, function()
-        setEmoteCopyEnabled(true, LocalPlayer.Character)
-        sendUICmd("copyemote on")
+    addButton(page, "COPY MAIN ACCOUNT EMOTE", 92, function()
+        sendUICmd("copyemote")
         rebuildEmoteCopy(page)
-    end, emoteCopyEnabled)
+    end)
 
-    addButton(page, "ANIMATION COPY OFF", 138, function()
-        setEmoteCopyEnabled(false, LocalPlayer.Character)
-        sendUICmd("copyemote off")
-        rebuildEmoteCopy(page)
-    end, not emoteCopyEnabled)
-
-    addInfo(page, "Status: " .. (emoteCopyEnabled and "ON" or "OFF"), 194)
-    addInfo(page, "When ON, the stand continuously mirrors all currently playing main-account animations and emotes.", 230)
-    addInfo(page, "This includes idle, walk, run, jump, attack, action, and emote animation tracks.", 266)
+    addInfo(page, "The stand looks at the main account's currently playing animation and mirrors the most likely emote/action track.", 148)
+    addInfo(page, "If the main account is not currently playing an emote, the stand will report that no active emote was found.", 190)
 end
 
 local function rebuildESP(page)
@@ -1983,110 +1973,80 @@ local function stopChatEmote()
     end
 end
 
-local function stopCopiedAnimations()
-    for ownerTrack, standTrack in pairs(copiedAnimationTracks) do
-        if standTrack then
-            pcall(function() standTrack:Stop(0.1) end)
-            pcall(function() standTrack:Destroy() end)
-        end
-        copiedAnimationTracks[ownerTrack] = nil
-    end
-end
-
-local function syncMainAccountAnimations(character)
-    if not emoteCopyEnabled then
-        return
-    end
-
+local function copyMainAccountEmote(character)
     local owner = getOwner()
     if not owner or not owner.Character then
-        stopCopiedAnimations()
-        return
+        return false
     end
 
     local ownerHumanoid = owner.Character:FindFirstChildOfClass("Humanoid")
     local ownerAnimator = owner.Character:FindFirstChildOfClass("Animator")
         or (ownerHumanoid and ownerHumanoid:FindFirstChildOfClass("Animator"))
+    if not ownerAnimator then
+        return false
+    end
+
+    local bestTrack = nil
+    local bestPriority = -1
+    local bestLength = 0
+
+    for _, track in ipairs(ownerAnimator:GetPlayingAnimationTracks()) do
+        local animation = track.Animation
+        local animationId = animation and animation.AnimationId or ""
+        if animationId ~= "" and track.IsPlaying then
+            local name = (animation and animation.Name or ""):lower()
+            local priority = track.Priority.Value
+            local length = track.Length or 0
+
+            -- Prefer action/emote-style tracks and avoid the stand's normal
+            -- idle/walk-style animations when possible.
+            local looksLikeIdle = name:find("idle", 1, true)
+                or name:find("walk", 1, true)
+                or name:find("run", 1, true)
+                or name:find("jump", 1, true)
+                or name:find("fall", 1, true)
+
+            if not looksLikeIdle and (priority > bestPriority or (priority == bestPriority and length > bestLength)) then
+                bestTrack = track
+                bestPriority = priority
+                bestLength = length
+            end
+        end
+    end
+
+    if not bestTrack or not bestTrack.Animation then
+        return false
+    end
+
+    copiedMainEmoteId = bestTrack.Animation.AnimationId
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     local animator = character and (
         character:FindFirstChildOfClass("Animator")
         or (humanoid and humanoid:FindFirstChildOfClass("Animator"))
     )
-
-    if not ownerAnimator or not animator then
-        return
+    if not animator then
+        return false
     end
 
-    local activeOwnerTracks = {}
+    if currentIdleTrack and currentIdleTrack.IsPlaying then
+        currentIdleTrack:Stop()
+    end
+    stopChatEmote()
 
-    for _, ownerTrack in ipairs(ownerAnimator:GetPlayingAnimationTracks()) do
-        local animation = ownerTrack.Animation
-        local animationId = animation and animation.AnimationId or ""
+    local anim = Instance.new("Animation")
+    anim.AnimationId = copiedMainEmoteId
+    local success, copiedTrack = pcall(function()
+        return animator:LoadAnimation(anim)
+    end)
 
-        if animationId ~= "" and ownerTrack.IsPlaying then
-            activeOwnerTracks[ownerTrack] = true
-
-            local standTrack = copiedAnimationTracks[ownerTrack]
-            if not standTrack then
-                local copiedAnimation = Instance.new("Animation")
-                copiedAnimation.AnimationId = animationId
-
-                local ok, loadedTrack = pcall(function()
-                    return animator:LoadAnimation(copiedAnimation)
-                end)
-
-                if ok and loadedTrack then
-                    standTrack = loadedTrack
-                    copiedAnimationTracks[ownerTrack] = standTrack
-                    standTrack.Priority = ownerTrack.Priority
-                    standTrack.Looped = ownerTrack.Looped
-                    standTrack:Play(0.05, ownerTrack.WeightCurrent, ownerTrack.Speed)
-                end
-            end
-
-            if standTrack then
-                pcall(function()
-                    if standTrack.Priority ~= ownerTrack.Priority then
-                        standTrack.Priority = ownerTrack.Priority
-                    end
-                    if standTrack.Looped ~= ownerTrack.Looped then
-                        standTrack.Looped = ownerTrack.Looped
-                    end
-                    standTrack:AdjustSpeed(ownerTrack.Speed)
-                    standTrack:AdjustWeight(ownerTrack.WeightCurrent, 0.05)
-                    if math.abs(standTrack.TimePosition - ownerTrack.TimePosition) > 0.08 then
-                        standTrack.TimePosition = ownerTrack.TimePosition
-                    end
-                end)
-            end
-        end
+    if success and copiedTrack then
+        activeChatEmoteTrack = copiedTrack
+        activeChatEmoteTrack.Priority = Enum.AnimationPriority.Action4
+        activeChatEmoteTrack:Play()
+        return true
     end
 
-    for ownerTrack, standTrack in pairs(copiedAnimationTracks) do
-        if not activeOwnerTracks[ownerTrack] or not ownerTrack.Parent then
-            pcall(function() standTrack:Stop(0.1) end)
-            pcall(function() standTrack:Destroy() end)
-            copiedAnimationTracks[ownerTrack] = nil
-        end
-    end
-end
-
-local function setEmoteCopyEnabled(enabled, character)
-    emoteCopyEnabled = enabled
-
-    if not enabled then
-        stopCopiedAnimations()
-        return
-    end
-
-    if character then
-        syncMainAccountAnimations(character)
-    end
-end
-
-local function copyMainAccountEmote(character)
-    setEmoteCopyEnabled(true, character)
-    return emoteCopyEnabled and next(copiedAnimationTracks) ~= nil
+    return false
 end
 
 local function playChatEmote(character)
@@ -2389,12 +2349,18 @@ local function processCommand(player, message)
         return
     end
 
-    if msg == "copyemote on" or msg == "copyemote off" or msg == "copyemote" then
+    if msg == "copyemote" then
         if player == LocalPlayer or player.Name == currentOwnerName or player.Name == ORIGINAL_OWNER then
-            local enabled = msg ~= "copyemote off"
-            setEmoteCopyEnabled(enabled, LocalPlayer.Character)
-            updateGUI()
-            sendChatMessage("Animation/emote copy " .. (enabled and "ON." or "OFF."))
+            local copied = false
+            if LocalPlayer.Character and not standHidden then
+                copied = copyMainAccountEmote(LocalPlayer.Character)
+            end
+            if copied then
+                updateGUI()
+                sendChatMessage("Copied the main account's current emote.")
+            else
+                sendChatMessage("No active main-account emote was found.")
+            end
         end
         return
     end
@@ -2832,7 +2798,6 @@ RunService.Heartbeat:Connect(function()
     if IS_MAIN_ACCOUNT then return end
     local character = LocalPlayer.Character
     if not character or not character:FindFirstChild("HumanoidRootPart") then return end
-    syncMainAccountAnimations(character)
     local altRoot = character.HumanoidRootPart
     local humanoid = character:FindFirstChildOfClass("Humanoid")
 
