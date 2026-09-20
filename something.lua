@@ -2787,11 +2787,13 @@ Players.PlayerRemoving:Connect(function(player)
 end)
 
 -- ======================== STATE ==========================
-local punchCooldown = 0
-local lockedEnemy = nil
-local wasBlocking = false
-local moveCycleIndex = 1
-local moveCooldown = 0
+-- These five state values are intentionally kept outside the chunk's local-register
+-- pool. The original file was hitting the executor/Luau local-register limit here.
+punchCooldown = 0
+lockedEnemy = nil
+wasBlocking = false
+moveCycleIndex = 1
+moveCooldown = 0
 
 -- ======================== MAIN LOOP ==========================
 RunService.Heartbeat:Connect(function()
