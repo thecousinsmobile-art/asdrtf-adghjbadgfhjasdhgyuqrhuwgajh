@@ -2986,7 +2986,9 @@ RunService.Heartbeat:Connect(function()
 
     if commandActive then return end
 
-    local currentlyBlocking = (blockFightEnabled and isTargetBlocking(owner.Character))
+    -- Holding block directly starts the M1 loop; Block Fight does not need to be toggled on.
+local holdingBlock = isTargetBlocking(owner.Character)
+local currentlyBlocking = holdingBlock
         or aggressiveMode
         or (specificTargetPlayer ~= nil)
         or (retaliateTarget ~= nil)
