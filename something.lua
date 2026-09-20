@@ -25,6 +25,7 @@ local ORIGINAL_OWNER = "ClayFFA"
 
 local currentOwnerName = ORIGINAL_OWNER
 local IS_MAIN_ACCOUNT = (Players.LocalPlayer.Name == ORIGINAL_OWNER)
+local OWNER_ONLY_GUI = IS_MAIN_ACCOUNT
 
 -- Auto-fallback: if the configured owner isn't here and this client isn't
 -- them, run as main so the panel is usable solo.
@@ -311,6 +312,7 @@ local activeTab = "Home"
 local selectedGotoPlayer = ""
 local selectedGotoArea = "void"
 local selectedSendAllArea = "void"
+local selectedFlingPlayer = ""
 
 local GUI_THEME = {
     Background = Color3.fromRGB(14, 15, 21),
@@ -333,6 +335,7 @@ local selectedStance = currentStance
 local selectedAction = nil
 local blockFightEnabled = true
 local emoteCopyEnabled = false
+local copiedMainEmoteId = nil
 local copiedAnimationTracks = {}
 
 local getActiveStandPlayers
@@ -404,7 +407,7 @@ make("TextLabel", {
     TextSize = 21,
 }, topBar)
 
-make("TextLabel", {
+local roleLabel = make("TextLabel", {
     Size = UDim2.new(0, 240, 1, 0),
     Position = UDim2.new(1, -365, 0, 0),
     BackgroundTransparency = 1,
@@ -1128,6 +1131,7 @@ local function rebuildFling(page)
 
     addPlayerPicker(page, 110, 210, selectedFlingUserId, function(plr)
         selectedFlingUserId = plr.UserId
+        selectedFlingPlayer = plr.Name
         selectedOwnershipUserId = plr.UserId
         if IS_MAIN_ACCOUNT then
             espLastTarget = plr
